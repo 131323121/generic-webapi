@@ -10,8 +10,8 @@ app.use(express.json());
 app.use(express.static('public'));
 
 // 設定をコードで定義
-const PROVIDER = 'gemini';  // 'openai' or 'gemini'
-const MODEL = 'gemini-2.5-flash';  // OpenAI: 'gpt-4o-mini', Gemini: 'gemini-2.5-flash'
+const PROVIDER = 'openai';  // 'openai' or 'gemini'
+const MODEL = 'gpt-4o-mini';  // OpenAI: 'gpt-4o-mini', Gemini: 'gemini-2.5-flash'
 
 let promptTemplate;
 try {
@@ -21,17 +21,17 @@ try {
     process.exit(1);
 }
 
-const OPENAI_API_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
+const OPENAI_API_ENDPOINT = "https://openai-api-proxy-746164391621.us-west1.run.app";
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models/';
 
 app.post('/api/', async (req, res) => {
     try {
-        const { prompt, title = 'Generated Content', ...variables } = req.body;
+        const { prompt, title = 'SPI対策クイズ', ...variables } = req.body;
 
         // prompt.mdのテンプレート変数を自動置換
         let finalPrompt = prompt || promptTemplate;
         
-        // リクエストボディの全てのキーを変数として利用
+        // リクエストボディの全てのキー（genre, countなど）を変数として利用
         for (const [key, value] of Object.entries(variables)) {
             const regex = new RegExp(`\\$\\{${key}\\}`, 'g');
             finalPrompt = finalPrompt.replace(regex, value);
@@ -89,7 +89,10 @@ async function callOpenAI(prompt) {
     
     try {
         const parsedData = JSON.parse(responseText);
-        return Array.isArray(parsedData) ? parsedData : parsedData.quiz || [];
+        // --- 修正箇所：配列でもオブジェクトでも対応可能にする ---
+        if (Array.isArray(parsedData)) return parsedData;
+        if (parsedData.questions) return parsedData.questions;
+        return parsedData.quiz || parsedData.results || [];
     } catch (parseError) {
         throw new Error('Failed to parse LLM response');
     }
@@ -126,7 +129,11 @@ async function callGemini(prompt) {
     const responseText = data.candidates[0].content.parts[0].text;
     
     try {
-        return JSON.parse(responseText);
+        const parsedData = JSON.parse(responseText);
+        // Geminiの場合も同様に柔軟にパース
+        if (Array.isArray(parsedData)) return parsedData;
+        if (parsedData.questions) return parsedData.questions;
+        return parsedData.quiz || [];
     } catch (parseError) {
         throw new Error('Failed to parse LLM response');
     }
