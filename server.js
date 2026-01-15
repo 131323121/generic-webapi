@@ -9,9 +9,15 @@ const PORT = process.env.PORT || 8080;
 app.use(express.json());
 app.use(express.static('public'));
 
+// --- 追加：トップページで quiz1.html を表示する設定 ---
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'quiz1.html'));
+});
+// ----------------------------------------------
+
 // 設定をコードで定義
 const PROVIDER = 'openai';  // 'openai' or 'gemini'
-const MODEL = 'gpt-4o-mini';  // OpenAI: 'gpt-4o-mini', Gemini: 'gemini-2.5-flash'
+const MODEL = 'gpt-4o-mini';  // OpenAI: 'gpt-4o-mini'
 
 let promptTemplate;
 try {
@@ -28,10 +34,8 @@ app.post('/api/', async (req, res) => {
     try {
         const { prompt, title = 'SPI対策クイズ', ...variables } = req.body;
 
-        // prompt.mdのテンプレート変数を自動置換
         let finalPrompt = prompt || promptTemplate;
         
-        // リクエストボディの全てのキー（genre, countなど）を変数として利用
         for (const [key, value] of Object.entries(variables)) {
             const regex = new RegExp(`\\$\\{${key}\\}`, 'g');
             finalPrompt = finalPrompt.replace(regex, value);
@@ -89,7 +93,6 @@ async function callOpenAI(prompt) {
     
     try {
         const parsedData = JSON.parse(responseText);
-        // --- 修正箇所：配列でもオブジェクトでも対応可能にする ---
         if (Array.isArray(parsedData)) return parsedData;
         if (parsedData.questions) return parsedData.questions;
         return parsedData.quiz || parsedData.results || [];
@@ -130,7 +133,6 @@ async function callGemini(prompt) {
     
     try {
         const parsedData = JSON.parse(responseText);
-        // Geminiの場合も同様に柔軟にパース
         if (Array.isArray(parsedData)) return parsedData;
         if (parsedData.questions) return parsedData.questions;
         return parsedData.quiz || [];
@@ -139,7 +141,7 @@ async function callGemini(prompt) {
     }
 }
 
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on port ${PORT}`);
     console.log(`Config: ${PROVIDER} - ${MODEL}`);
 });
