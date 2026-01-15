@@ -1,24 +1,22 @@
+// server.js
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 10000; // Render は 10000 で動作することが多い
 
+// ===== public を静的配信 =====
+app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
-app.use(express.static('public'));
 
 // ===== 設定 =====
-const PROVIDER = 'openai'; // 'openai' or 'gemini'
+const PROVIDER = 'openai';
 const MODEL = 'gpt-4o-mini';
+const OPENAI_API_ENDPOINT = 'https://openai-api-proxy-746164391621.us-west1.run.app';
 
-const OPENAI_API_ENDPOINT =
-  'https://openai-api-proxy-746164391621.us-west1.run.app';
-const GEMINI_API_BASE_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/';
-
-// ===== prompt 読み込み =====
+// ===== prompt.md 読み込み =====
 let promptTemplate;
 try {
   promptTemplate = fs.readFileSync('prompt.md', 'utf8');
@@ -27,13 +25,11 @@ try {
   process.exit(1);
 }
 
-// ===== API =====
+// ===== /api/ エンドポイント =====
 app.post('/api/', async (req, res) => {
   try {
     const { prompt, title = 'SPI対策クイズ', ...variables } = req.body;
-
     let finalPrompt = prompt || promptTemplate;
-
     for (const [key, value] of Object.entries(variables)) {
       const regex = new RegExp(`\\$\\{${key}\\}`, 'g');
       finalPrompt = finalPrompt.replace(regex, value);
@@ -42,8 +38,6 @@ app.post('/api/', async (req, res) => {
     let result;
     if (PROVIDER === 'openai') {
       result = await callOpenAI(finalPrompt);
-    } else {
-      result = await callGemini(finalPrompt);
     }
 
     res.json({ title, questions: result });
@@ -53,7 +47,7 @@ app.post('/api/', async (req, res) => {
   }
 });
 
-// ===== OpenAI =====
+// ===== OpenAI 呼び出し =====
 async function callOpenAI(prompt) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY is not set');
@@ -72,38 +66,29 @@ async function callOpenAI(prompt) {
     }),
   });
 
-  const data = await response.json();
-  const text = data.choices[0].message.content;
-  const parsed = JSON.parse(text);
-
-  return parsed.questions || parsed.quiz || parsed;
-}
-
-// ===== Gemini =====
-async function callGemini(prompt) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY is not set');
-
-  const response = await fetch(
-    `${GEMINI_API_BASE_URL}${MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          maxOutputTokens: 2000,
-          response_mime_type: 'application/json',
-        },
-      }),
-    }
-  );
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error?.message || 'OpenAI API error');
+  }
 
   const data = await response.json();
-  return JSON.parse(data.candidates[0].content.parts[0].text);
+  const responseText = data.choices[0].message.content;
+
+  try {
+    const parsed = JSON.parse(responseText);
+    if (Array.isArray(parsed)) return parsed;
+    return parsed.questions || parsed.quiz || [];
+  } catch (parseErr) {
+    throw new Error('Failed to parse LLM response');
+  }
 }
 
-// ===== 起動 =====
+// ===== ルートアクセスで index.html =====
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// ===== サーバー起動 =====
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Config: ${PROVIDER} - ${MODEL}`);
